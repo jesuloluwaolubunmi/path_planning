@@ -1,0 +1,43 @@
+FLOOR PLAN PATH PLANNER — PHONE LIVE CAMERA
+
+FILES
+- Floor Plan Path Planner.html : the planner interface
+- server.py                    : local web server + private WebSocket relay
+- requirements.txt             : Python packages
+
+IMPORTANT
+The phone browser needs HTTPS permission to use its camera. Do not open the HTML by double-clicking it, and do not use a plain http://192.168... address on the phone. Use the temporary HTTPS tunnel steps below.
+
+WINDOWS SETUP
+1. Put all files in the same folder.
+2. Open Command Prompt in that folder.
+3. Install the Python packages:
+      py -m pip install -r requirements.txt
+4. Start the planner server:
+      py -m uvicorn server:app --host 0.0.0.0 --port 8000
+   Keep this window open.
+5. Install Cloudflare Tunnel (cloudflared) on the computer from:
+      https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/
+6. Open a SECOND Command Prompt and run:
+      cloudflared tunnel --url http://localhost:8000
+7. Cloudflared will print a temporary HTTPS address ending in trycloudflare.com.
+8. Open that HTTPS address on the computer. Do not use localhost for this step.
+9. Click “Connect phone”. Scan the QR code with your phone camera.
+10. Open the link, allow camera permission, and tap “Start phone camera”.
+
+WHAT YOU SHOULD SEE
+- The phone shows its own camera preview.
+- The computer shows “Live phone camera feed” with the actual video.
+- The computer also receives the processed occupancy-grid frames and updates the planner.
+- Point the phone steadily at the floor plan. Set start and goal on the computer, then use Lock plan as needed.
+
+TROUBLESHOOTING
+- Both devices need an internet connection while using the temporary tunnel.
+- Keep both Command Prompt windows open.
+- If the QR code was generated before opening the HTTPS tunnel URL, reload the HTTPS page and generate a fresh QR code.
+- If camera permission was denied, open the phone browser's site settings and allow Camera, then reload.
+- If the video does not connect, stop the phone camera, reload both pages, scan a newly generated QR code, and try again.
+- The temporary trycloudflare.com address changes when the tunnel restarts.
+
+PRIVACY / SAFETY
+The tunnel makes this app reachable through a temporary public URL. The random room token in the QR code is used to pair the two browsers. Do not share the QR code or URL publicly. Stop the tunnel and server when finished. This prototype has no user login or production-grade access control; use it for testing, not sensitive camera footage.

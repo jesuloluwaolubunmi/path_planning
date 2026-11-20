@@ -1,0 +1,598 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Floor Plan Path Planner</title>
+<style>
+:root{--bg:#eef1f4;--fg:#14202b;--card:#fff;--bd:#cfd6dd;--ac:#0f766e;--mut:#5b6b78;--warn:#b45309;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0f1519;--fg:#e6edf2;--card:#182026;--bd:#2d3a44;--ac:#2dd4bf;--mut:#93a4b1;--warn:#fbbf24}}
+:root[data-theme="dark"]{--bg:#0f1519;--fg:#e6edf2;--card:#182026;--bd:#2d3a44;--ac:#2dd4bf;--mut:#93a4b1;--warn:#fbbf24}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--bg);color:var(--fg);font:15px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;padding:14px;max-width:820px;margin:0 auto}
+h1{font-size:1.25rem;margin:0 0 2px}
+p.sub{margin:0 0 12px;color:var(--mut)}
+.card{background:var(--card);border:1px solid var(--bd);border-radius:10px;padding:12px;margin-bottom:12px}
+.row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+button{font:inherit;padding:8px 12px;border:1px solid var(--bd);background:var(--card);color:var(--fg);border-radius:8px;cursor:pointer}
+button.p{background:var(--ac);color:#fff;border-color:var(--ac)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]) button.p{color:#06201d}}
+button.on{outline:2px solid var(--ac)}
+button:focus-visible,input:focus-visible{outline:2px solid var(--ac);outline-offset:1px}
+label{display:flex;flex-direction:column;gap:2px;font-size:.82rem;color:var(--mut);min-width:130px;flex:1}
+label.ck{flex-direction:row;align-items:center;gap:6px;flex:none}
+input[type=text],input[type=number]{font:inherit;padding:6px 8px;border:1px solid var(--bd);border-radius:6px;background:var(--bg);color:var(--fg);width:100%}
+canvas{width:100%;height:auto;border:1px solid var(--bd);border-radius:8px;touch-action:none;background:#fff;display:block}
+#st{margin:8px 0 0;min-height:1.4em}
+#st.err{color:var(--warn)}
+textarea{width:100%;height:84px;font:12px/1.4 ui-monospace,Menlo,Consolas,monospace;background:var(--bg);color:var(--fg);border:1px solid var(--bd);border-radius:6px;padding:6px}
+.lg{display:flex;flex-wrap:wrap;gap:12px;font-size:.8rem;color:var(--mut);margin-top:8px}
+.lg i{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:4px}
+h2{font-size:.95rem;margin:0 0 8px}
+#phoneCard{display:none}
+#remoteCard video{display:block}
+body.ph #remoteCard{display:none}
+body.ph #phoneCard{display:block}
+body.ph>.card:not(#phoneCard),body.ph>h1,body.ph>p.sub{display:none}
+#qc{width:220px;max-width:100%;height:auto;border-radius:6px}
+</style>
+</head>
+<body>
+<h1>Floor plan path planner</h1>
+<p class="sub">Photograph a floor plan, tap a start and a goal, and get a route that replans when new obstacles appear.</p>
+
+<div class="card">
+  <div class="row">
+    <button class="p" id="bCam">Take photo</button>
+    <button id="bSample">Use sample plan</button>
+    <button class="p" id="bPhone">Connect phone</button>
+    <button id="bLive">Start live camera</button>
+    <button id="bLock" disabled>Lock plan</button>
+    <video id="vid" playsinline muted style="position:absolute;width:1px;height:1px;opacity:0;pointer-events:none"></video>
+    <input type="file" id="file" accept="image/*" capture="environment" hidden>
+  </div>
+  <div class="row" style="margin-top:10px" id="modes">
+    <button data-m="start" class="on">Set start</button>
+    <button data-m="goal">Set goal</button>
+    <button data-m="obs">Add obstacle</button>
+    <button data-m="erase">Erase obstacle</button>
+  </div>
+</div>
+
+<div class="card" id="qrCard" hidden>
+  <h2>Connect your phone</h2>
+  <div class="row" style="align-items:flex-start;gap:16px">
+    <canvas id="qc" width="220" height="220"></canvas>
+    <div style="flex:1 1 220px">
+      <p style="margin:0 0 6px">Scan with your phone camera, open the link, then tap Start phone camera. The phone must be signed in to the same Claude account.</p>
+      <p id="qs" style="margin:0 0 6px;font-weight:600">Waiting for phone…</p>
+      <p id="qu" style="margin:0;font-size:.78rem;color:var(--mut);word-break:break-all"></p>
+    </div>
+  </div>
+</div>
+
+<div class="card" id="remoteCard" hidden>
+  <h2>Live phone camera feed</h2>
+  <video id="remoteVid" autoplay playsinline muted style="width:100%;max-height:420px;object-fit:contain;border-radius:8px;background:#000"></video>
+  <p id="remoteStatus" class="sub" style="margin:8px 0 0">Waiting for your phone camera…</p>
+</div>
+
+<div class="card" id="phoneCard">
+  <h2>Phone camera</h2>
+  <video id="pv" playsinline muted style="width:100%;border-radius:8px;background:#000"></video>
+  <p id="ps" class="sub" style="margin:8px 0">Point the camera straight down at the floor plan, then start.</p>
+  <div class="row"><button class="p" id="pStart">Start phone camera</button></div>
+</div>
+
+<div class="card">
+  <canvas id="cv" width="640" height="480"></canvas>
+  <div class="lg">
+    <span><i style="background:#16a34a"></i>Start</span><span><i style="background:#dc2626"></i>Goal</span>
+    <span><i style="background:#0f766e"></i>Route</span><span><i style="background:#f59e0b"></i>Live obstacle</span>
+    <span><i style="background:rgba(239,68,68,.5)"></i>Wall and safety margin</span>
+  </div>
+  <p id="st"></p>
+  <div class="row" style="margin-top:8px">
+    <button class="p" id="bRun">Run robot</button>
+    <button id="bPlan">Plan route</button>
+    <button id="bDrop">Drop obstacle ahead</button>
+    <button id="bClr">Clear live obstacles</button>
+    <button id="bRst">Reset robot</button>
+  </div>
+</div>
+
+<div class="card">
+  <h2>Robot size</h2>
+  <p class="sub" style="margin:0 0 10px">Bigger robot = wider safety margin around walls. The route replans instantly.</p>
+  <div class="row" style="align-items:flex-end">
+    <label style="flex:2 1 220px">Robot radius (metres)
+      <input type="range" id="radM" min="0.05" max="1" step="0.05" value="0.15">
+    </label>
+    <label style="flex:0 0 110px">Radius (m) <input type="number" id="radNum" min="0.05" max="1" step="0.05" value="0.15"></label>
+    <div class="row" style="flex:none">
+      <button id="radMinus" title="Decrease radius">−</button>
+      <button id="radPlus" title="Increase radius">+</button>
+    </div>
+  </div>
+  <div class="row" style="margin-top:10px">
+    <button data-rad="0.1">Small · 0.10 m</button>
+    <button data-rad="0.15">Medium · 0.15 m</button>
+    <button data-rad="0.25">Large · 0.25 m</button>
+    <button data-rad="0.4">XL · 0.40 m</button>
+  </div>
+  <p id="radInfo" class="sub" style="margin:10px 0 0"></p>
+</div>
+
+<div class="card">
+  <h2>Map settings</h2>
+  <div class="row">
+    <label>Wall threshold <input type="range" id="thr" min="40" max="220" value="130"></label>
+    <label>Cell size (px) <input type="range" id="cell" min="4" max="20" value="8"></label>
+    <label>Room width (m) <input type="number" id="rw" min="0.5" step="0.5" value="4"></label>
+  </div>
+  <div class="row" style="margin-top:8px">
+    <label class="ck"><input type="checkbox" id="inv"> Walls are light on a dark background</label>
+    <label class="ck"><input type="checkbox" id="ov" checked> Show occupancy grid (darker = wall)</label>
+  </div>
+</div>
+
+<div class="card">
+  <h2>Real-time data (MQTT over WebSocket)</h2>
+  <div class="row">
+    <label style="flex:2 1 220px">Broker URL <input type="text" id="mu" value="wss://broker.emqx.io:8084/mqtt"></label>
+    <label style="flex:1 1 160px">Topic prefix <input type="text" id="mt"></label>
+    <button id="bMq">Connect</button>
+  </div>
+  <p class="sub" style="margin:8px 0 4px;font-size:.82rem" id="mh"></p>
+</div>
+
+<div class="card">
+  <h2>Waypoints for the robot (meters from top-left)</h2>
+  <textarea id="out" readonly></textarea>
+  <div class="row" style="margin-top:6px"><button id="bCp">Copy waypoints</button></div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/mqtt@5.3.5/dist/mqtt.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.js"></script>
+<script>
+const $=id=>document.getElementById(id);
+const params=new URLSearchParams(location.search);
+const PH=params.get('phone')==='1';if(PH)document.body.classList.add('ph');
+const roomId=params.get('room')||((crypto.randomUUID&&crypto.randomUUID())||Math.random().toString(36).slice(2)+Date.now().toString(36));
+const PHONE_URL=location.origin+'/?phone=1&room='+encodeURIComponent(roomId);
+const cv=$('cv'),ctx=cv.getContext('2d',{willReadFrequently:true});
+const bg=document.createElement('canvas');
+const S={W:640,H:480,cell:8,cols:0,rows:0,wall:null,live:null,blocked:null,start:null,goal:null,path:[],ri:0,mode:'start',timer:null,mq:null,replans:0,painting:false,peer:null,iceQueue:[]};
+$('mt').value='rain/'+Math.random().toString(36).slice(2,7);
+const mpp=()=>(+$('rw').value||4)/S.W;
+
+function say(t,err){const s=$('st');s.textContent=t;s.className=err?'err':''}
+
+/* ---------- image to grid ---------- */
+function loadImg(src,keepPts){
+  const im=new Image();
+  im.onload=()=>{
+    const k=Math.min(1,640/im.width);
+    S.W=Math.round(im.width*k);S.H=Math.round(im.height*k);
+    bg.width=cv.width=S.W;bg.height=cv.height=S.H;
+    const b=bg.getContext('2d');b.fillStyle='#fff';b.fillRect(0,0,S.W,S.H);b.drawImage(im,0,0,S.W,S.H);
+    S.live=null;stop();stopCam();S.path=[];
+    if(!keepPts){S.start=S.goal=null}
+    buildGrid();
+    say(S.start?'Sample loaded. Press Run robot.':'Tap the plan to set the start, then switch to Set goal.');
+  };
+  im.src=src;
+}
+function sample(){
+  const c=document.createElement('canvas');c.width=640;c.height=480;
+  const g=c.getContext('2d');g.fillStyle='#fff';g.fillRect(0,0,640,480);
+  g.strokeStyle='#111';g.lineWidth=8;g.lineCap='square';
+  g.strokeRect(10,10,620,460);
+  [[220,10,220,150],[220,230,220,470],[220,260,400,260],[470,260,630,260],[440,10,440,180]].forEach(l=>{g.beginPath();g.moveTo(l[0],l[1]);g.lineTo(l[2],l[3]);g.stroke()});
+  loadImg(c.toDataURL(),true);
+  S.start=[60,420];S.goal=[580,60];
+}
+function dims(){S.cell=+$('cell').value;S.cols=Math.ceil(S.W/S.cell);S.rows=Math.ceil(S.H/S.cell)}
+/* occupancy value per cell: share of dark pixels, 0 (free) to 1 (wall) */
+function computeOcc(){
+  const {W,H,cell,cols,rows}=S,d=bg.getContext('2d').getImageData(0,0,W,H).data,thr=+$('thr').value,inv=$('inv').checked;
+  const f=new Float32Array(cols*rows);
+  for(let cy=0;cy<rows;cy++)for(let cx=0;cx<cols;cx++){
+    let n=0,t=0;
+    for(let y=cy*cell;y<Math.min(H,(cy+1)*cell);y++)for(let x=cx*cell;x<Math.min(W,(cx+1)*cell);x++){
+      const i=(y*W+x)*4,l=.299*d[i]+.587*d[i+1]+.114*d[i+2];t++;
+      if(inv?l>thr:l<thr)n++;
+    }
+    f[cy*cols+cx]=n/t;
+  }
+  return f;
+}
+function buildGrid(){
+  dims();S.occ=computeOcc();
+  S.wall=Uint8Array.from(S.occ,v=>v>.1?1:0);
+  if(!S.live||S.live.length!==S.wall.length)S.live=new Uint8Array(S.wall.length);
+  inflate();replan(false);draw();pubGrid(true);
+}
+function robotRadiusCells(){
+  // Radius in metres -> cells. mpp() = metres per pixel, S.cell = pixels per cell.
+  const m=+($('radM')?$('radM').value:0.15)||0;
+  return Math.max(0, Math.round(m / mpp() / S.cell));
+}
+function robotRadiusM(){ return +($('radM')?$('radM').value:0.15)||0; }
+function updateRadInfo(){
+  const el=$('radInfo'); if(!el) return;
+  const m=robotRadiusM(), cells=robotRadiusCells();
+  el.textContent = 'Radius '+m.toFixed(2)+' m  ·  Diameter '+(m*2).toFixed(2)+' m  ·  Safety margin '+cells+' cell'+(cells===1?'':'s')+' ('+(cells*S.cell*mpp()).toFixed(2)+' m on the map)';
+  const s=$('radM'), n=$('radNum'); if(s) s.value=m; if(n) n.value=m;
+}
+function setRadius(m, announce){
+  m=Math.min(1, Math.max(0.05, Math.round(m/0.05)*0.05));
+  const s=$('radM'); if(s) s.value=m.toFixed(2);
+  updateRadInfo(); inflate(); onObstacleChange();
+  if(announce) say('Robot radius '+m.toFixed(2)+' m. '+(S.path.length?'Route length '+pathLen()+' m.':'No route — try a smaller radius.'));
+}
+function inflate(){
+  const {cols,rows,wall,live}=S,r=robotRadiusCells(),bl=new Uint8Array(cols*rows),off=[];
+  for(let dy=-r;dy<=r;dy++)for(let dx=-r;dx<=r;dx++)if(dx*dx+dy*dy<=r*r+.5)off.push([dx,dy]);
+  for(let y=0;y<rows;y++)for(let x=0;x<cols;x++){
+    if(!wall[y*cols+x]&&!live[y*cols+x])continue;
+    for(const [dx,dy] of off){const nx=x+dx,ny=y+dy;if(nx>=0&&ny>=0&&nx<cols&&ny<rows)bl[ny*cols+nx]=1}
+  }
+  S.blocked=bl;
+}
+
+/* ---------- A* ---------- */
+class Heap{constructor(){this.a=[]}
+  push(f,i){const a=this.a;a.push([f,i]);let k=a.length-1;while(k>0){const p=(k-1)>>1;if(a[p][0]<=a[k][0])break;[a[p],a[k]]=[a[k],a[p]];k=p}}
+  pop(){const a=this.a,t=a[0],l=a.pop();if(a.length){a[0]=l;let k=0;for(;;){let c=2*k+1;if(c>=a.length)break;if(c+1<a.length&&a[c+1][0]<a[c][0])c++;if(a[k][0]<=a[c][0])break;[a[k],a[c]]=[a[c],a[k]];k=c}}return t}
+  get n(){return this.a.length}}
+function astar(s,g){
+  const {cols,rows,blocked}=S,N=cols*rows,G=new Float32Array(N).fill(1e9),P=new Int32Array(N).fill(-1),C=new Uint8Array(N);
+  const gx=g%cols,gy=(g/cols)|0;
+  const h=i=>{const dx=Math.abs(i%cols-gx),dy=Math.abs(((i/cols)|0)-gy);return dx+dy-.586*Math.min(dx,dy)};
+  const q=new Heap();G[s]=0;q.push(h(s),s);
+  while(q.n){
+    const i=q.pop()[1];if(C[i])continue;C[i]=1;
+    if(i===g){const p=[];for(let k=g;k>=0;k=P[k])p.push(k);return p.reverse()}
+    const x=i%cols,y=(i/cols)|0;
+    for(let dy=-1;dy<=1;dy++)for(let dx=-1;dx<=1;dx++){
+      if(!dx&&!dy)continue;const nx=x+dx,ny=y+dy;
+      if(nx<0||ny<0||nx>=cols||ny>=rows)continue;
+      const j=ny*cols+nx;if(blocked[j]||C[j])continue;
+      if(dx&&dy&&(blocked[y*cols+nx]||blocked[ny*cols+x]))continue;
+      const ng=G[i]+(dx&&dy?1.414:1);
+      if(ng<G[j]){G[j]=ng;P[j]=i;q.push(ng+h(j),j)}
+    }
+  }
+  return null;
+}
+const cellOf=p=>Math.min(S.rows-1,Math.max(0,Math.floor(p[1]/S.cell)))*S.cols+Math.min(S.cols-1,Math.max(0,Math.floor(p[0]/S.cell)));
+const ctr=i=>[(i%S.cols+.5)*S.cell,(((i/S.cols)|0)+.5)*S.cell];
+function nearestFree(i){
+  if(!S.blocked[i])return i;
+  const x0=i%S.cols,y0=(i/S.cols)|0;
+  for(let r=1;r<40;r++)for(let dy=-r;dy<=r;dy++)for(let dx=-r;dx<=r;dx++){
+    if(Math.max(Math.abs(dx),Math.abs(dy))!==r)continue;
+    const x=x0+dx,y=y0+dy;if(x<0||y<0||x>=S.cols||y>=S.rows)continue;
+    if(!S.blocked[y*S.cols+x])return y*S.cols+x;
+  }
+  return -1;
+}
+
+/* ---------- planning and replanning ---------- */
+function replan(fromRobot){
+  if(!S.start||!S.goal){S.path=[];wp();return false}
+  let a=fromRobot&&S.path.length?S.path[S.ri]:cellOf(S.start);
+  const b=cellOf(S.goal);
+  a=nearestFree(a);const g=nearestFree(b);
+  if(a<0||g<0){S.path=[];wp();return false}
+  const t0=performance.now(),p=astar(a,g);
+  if(!p){S.path=[];S.ri=0;wp();return false}
+  S.path=p;S.ri=0;wp();
+  S.ms=(performance.now()-t0).toFixed(1);
+  return true;
+}
+function waypoints(){
+  const out=[];let pd=null;const m=mpp()*S.cell;
+  for(let k=0;k<S.path.length;k++){
+    const i=S.path[k],n=S.path[k+1];
+    const d=n===undefined?null:[Math.sign(n%S.cols-i%S.cols),Math.sign(((n/S.cols)|0)-((i/S.cols)|0))];
+    if(k===0||k===S.path.length-1||d[0]!==pd[0]||d[1]!==pd[1]){
+      const c=ctr(i);out.push({x:+(c[0]*mpp()).toFixed(2),y:+(c[1]*mpp()).toFixed(2)});
+    }
+    pd=d;
+  }
+  return out;
+}
+function wp(){
+  const w=waypoints();$('out').value=w.length?JSON.stringify(w):'';
+  if(S.mq&&S.mq.connected&&w.length)S.mq.publish($('mt').value+'/path',JSON.stringify({waypoints:w,replans:S.replans}));
+}
+function pathLen(){
+  let L=0;for(let k=1;k<S.path.length;k++){const a=S.path[k-1],b=S.path[k];L+=(a%S.cols!==b%S.cols&&((a/S.cols)|0)!==((b/S.cols)|0))?1.414:1}
+  return (L*S.cell*mpp()).toFixed(2);
+}
+function onObstacleChange(){
+  inflate();
+  if(S.timer){
+    const rest=S.path.slice(S.ri);
+    if(rest.some(i=>S.blocked[i])){
+      const ok=replan(true);
+      if(ok){S.replans++;say('Obstacle on the route. Replanned from the robot position (replan '+S.replans+', '+pathLen()+' m left).')}
+      else{stop();say('No route to the goal with the current obstacles.',true)}
+    }
+  }else if(S.start&&S.goal){
+    if(!replan(false))say('No route to the goal with the current obstacles.',true);else say('Route length '+pathLen()+' m.');
+  }
+  draw();
+}
+
+/* ---------- robot simulation ---------- */
+function run(){
+  if(!S.start||!S.goal){say('Set both a start and a goal first.',true);return}
+  stop();S.replans=0;
+  if(!replan(false)){say('No route between start and goal. Try a smaller robot radius or lower the wall threshold.',true);draw();return}
+  say('Running. Add obstacles on the map or send them over MQTT to see it replan.');
+  S.timer=setInterval(()=>{
+    if(S.ri<S.path.length-1){S.ri++;if(S.mq&&S.mq.connected){const c=ctr(S.path[S.ri]);S.mq.publish($('mt').value+'/pose',JSON.stringify({x:+(c[0]*mpp()).toFixed(2),y:+(c[1]*mpp()).toFixed(2)}))}}
+    else{stop();say('Goal reached after '+S.replans+' replan'+(S.replans===1?'':'s')+'.')}
+    draw();
+  },120);
+}
+function stop(){if(S.timer){clearInterval(S.timer);S.timer=null}}
+function reset(){stop();S.ri=0;S.replans=0;replan(false);say(S.path.length?'Route length '+pathLen()+' m.':'Set a start and a goal.');draw()}
+function dropAhead(){
+  if(!S.path.length){say('Plan a route first.',true);return}
+  const k=Math.min(S.path.length-2,S.ri+8);if(k<=S.ri){say('Too close to the goal to drop an obstacle.',true);return}
+  const i=S.path[k],x=i%S.cols,y=(i/S.cols)|0;
+  for(let dy=-1;dy<=1;dy++)for(let dx=-1;dx<=1;dx++){const nx=x+dx,ny=y+dy;if(nx>=0&&ny>=0&&nx<S.cols&&ny<S.rows)S.live[ny*S.cols+nx]=1}
+  onObstacleChange();
+}
+
+/* ---------- drawing ---------- */
+function draw(){
+  const {cols,rows,cell}=S;
+  if($('ov').checked&&S.blocked&&S.occ){
+    ctx.fillStyle='#fff';ctx.fillRect(0,0,S.W,S.H);
+    for(let i=0;i<cols*rows;i++){
+      const x=(i%cols)*cell,y=((i/cols)|0)*cell;
+      if(S.live[i])ctx.fillStyle='#f59e0b';
+      else if(S.wall[i]){const g=Math.round(90-Math.min(1,S.occ[i])*80);ctx.fillStyle='rgb('+g+','+g+','+g+')'}
+      else if(S.blocked[i])ctx.fillStyle='rgba(239,68,68,.18)';
+      else{const g=Math.max(150,Math.round(255-S.occ[i]*1050));ctx.fillStyle='rgb('+g+','+g+','+g+')'}
+      ctx.fillRect(x,y,cell,cell);
+    }
+  }else{
+    ctx.drawImage(bg,0,0);
+    if(S.live)for(let i=0;i<cols*rows;i++)if(S.live[i]){ctx.fillStyle='rgba(245,158,11,.85)';ctx.fillRect((i%cols)*cell,((i/cols)|0)*cell,cell,cell)}
+  }
+  if(S.path.length>1){
+    ctx.lineWidth=3;ctx.lineJoin='round';ctx.strokeStyle='#0f766e';ctx.beginPath();
+    S.path.forEach((i,k)=>{const c=ctr(i);k?ctx.lineTo(c[0],c[1]):ctx.moveTo(c[0],c[1])});ctx.stroke();
+  }
+  dot(S.start,'#16a34a',7);dot(S.goal,'#dc2626',7);
+  if(S.path.length){
+    const c=ctr(S.path[S.ri]), rr=Math.max(4, robotRadiusCells()*S.cell);
+    ctx.beginPath(); ctx.arc(c[0],c[1],rr,0,7); ctx.fillStyle='rgba(15,118,110,.18)'; ctx.fill();
+    ctx.lineWidth=2; ctx.strokeStyle='#0f766e'; ctx.stroke();
+    dot(c,'#111827',6,'#fff');
+  }
+}
+function dot(p,c,r,s){if(!p)return;ctx.beginPath();ctx.arc(p[0],p[1],r,0,7);ctx.fillStyle=c;ctx.fill();ctx.lineWidth=2;ctx.strokeStyle=s||'#fff';ctx.stroke()}
+
+/* ---------- phone link + WebRTC live video ---------- */
+function pack(f){const n=f.length,u=new Uint8Array((n+1)>>1);for(let i=0;i<n;i++){const q=Math.round(Math.min(1,f[i])*15);u[i>>1]|=(i&1)?q<<4:q}let s='';for(let i=0;i<u.length;i++)s+=String.fromCharCode(u[i]);return btoa(s)}
+function unpack(b,n){const s=atob(b),f=new Float32Array(n);for(let i=0;i<n;i++){const c=s.charCodeAt(i>>1);f[i]=((i&1)?c>>4:c&15)/15}return f}
+function sendCfg(){if(PH||!S.room)return;S.room.emit('cfg',{thr:+$('thr').value,cell:+$('cell').value,inv:$('inv').checked})}
+function drawQR(){
+  $('qu').textContent=PHONE_URL;const c=$('qc');
+  if(typeof qrcode==='undefined'){c.style.display='none';return}
+  const q=qrcode(0,'M');q.addData(PHONE_URL);q.make();
+  const n=q.getModuleCount(),px=5,m=4,g=c.getContext('2d');
+  c.width=c.height=(n+2*m)*px;g.fillStyle='#fff';g.fillRect(0,0,c.width,c.height);g.fillStyle='#000';
+  for(let r=0;r<n;r++)for(let k=0;k<n;k++)if(q.isDark(r,k))g.fillRect((k+m)*px,(r+m)*px,px,px);
+}
+function togglePhone(){
+  const c=$('qrCard');c.hidden=!c.hidden;S.phoneOn=!c.hidden;
+  if(S.phoneOn){drawQR();sendCfg();$('remoteCard').hidden=false;say('Scan the QR code with your phone. Both devices must have internet access.');}
+  else if(S.src==='phone'){stopCam();if(S.peer){S.peer.close();S.peer=null}say('Phone disconnected.');}
+}
+function phoneReset(d){
+  stop();stopCam();S.src='phone';S.camOn=true;S.start=S.goal=null;S.path=[];
+  S.W=d.w;S.H=d.h;S.cell=d.cell;S.cols=d.cols;S.rows=d.rows;
+  bg.width=cv.width=S.W;bg.height=cv.height=S.H;
+  const n=S.cols*S.rows;
+  S.occ=new Float32Array(n);S.wall=new Uint8Array(n);S.live=new Uint8Array(n);S.cnt=new Uint8Array(n);S.cam=new Uint8Array(n);S.base=null;
+  inflate();$('bLock').disabled=false;$('bLock').textContent='Lock plan';
+  say('Phone connected. Tap a start and a goal, then press Lock plan.');
+}
+function onPhoneFrame(d){
+  if(!S.phoneOn||S.src==='local'||!d||typeof d.d!=='string')return;
+  if(![d.w,d.h,d.cell,d.cols,d.rows].every(Number.isInteger)||d.w>2000||d.h>2000||d.cell<1||d.cols*d.rows>20000||d.cols*d.rows<1)return;
+  if(S.src!=='phone'||S.cols!==d.cols||S.rows!==d.rows||S.cell!==d.cell||S.W!==d.w)phoneReset(d);
+  let f;try{f=unpack(d.d,d.cols*d.rows)}catch(e){return}
+  S.lastPhone=Date.now();ingest(f);
+}
+let pStream=null,pT=null,pWake=null;
+function makePeer(){
+  if(S.peer)S.peer.close();S.iceQueue=[];
+  const pc=new RTCPeerConnection({iceServers:[{urls:'stun:stun.l.google.com:19302'}]});S.peer=pc;
+  pc.onicecandidate=()=>{}; // ICE candidates are sent together after gathering completes
+  pc.onconnectionstatechange=()=>{
+    const state=pc.connectionState;
+    if($('remoteStatus'))$('remoteStatus').textContent='Camera connection: '+state;
+    if(PH)$('ps').textContent='Camera connection: '+state;
+  };
+  if(!PH)pc.ontrack=e=>{
+    const rv=$('remoteVid');$('remoteCard').hidden=false;
+    if(rv.srcObject!==e.streams[0])rv.srcObject=e.streams[0];
+    rv.play().catch(()=>{});$('remoteStatus').textContent='Live video received from your phone.';
+  };
+  return pc;
+}
+async function waitIceGathering(pc){if(pc.iceGatheringState==='complete')return;await new Promise(resolve=>{const done=()=>{if(pc.iceGatheringState==='complete'){pc.removeEventListener('icegatheringstatechange',done);resolve()}};pc.addEventListener('icegatheringstatechange',done);setTimeout(resolve,8000)})}
+async function handleSignal(d){
+  if(!d||!d.type)return;
+  try{
+    if(d.type==='offer'&&!PH){
+      const pc=makePeer();await pc.setRemoteDescription(d.description);
+      const answer=await pc.createAnswer();await pc.setLocalDescription(answer);await waitIceGathering(pc);
+      S.room.emit('signal',{type:'answer',description:pc.localDescription});
+    }else if(d.type==='answer'&&PH&&S.peer){
+      await S.peer.setRemoteDescription(d.description);
+    }else if(d.type==='candidate'&&S.peer){
+      if(S.peer.remoteDescription)await S.peer.addIceCandidate(d.candidate);else S.iceQueue.push(d.candidate);
+    }
+  }catch(e){console.error('WebRTC signalling error',e);if(!PH)$('remoteStatus').textContent='Could not establish video connection: '+e.message;else $('ps').textContent='Could not connect video: '+e.message;}
+}
+async function startPhone(){
+  const v=$('pv'),ps=$('ps');
+  if(!S.room||!S.room.ready){ps.textContent='Connecting to computer… wait a moment and try again.';return}
+  try{
+    pStream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'},width:{ideal:1280}},audio:false});
+    v.srcObject=pStream;await v.play();
+  }catch(e){ps.textContent='Camera blocked ('+(e.name||'error')+'). Allow camera access and try again.';return}
+  try{pWake=await navigator.wakeLock.request('screen')}catch(e){}
+  const k=Math.min(1,640/v.videoWidth);S.W=Math.round(v.videoWidth*k);S.H=Math.round(v.videoHeight*k);
+  bg.width=S.W;bg.height=S.H;
+  const pc=makePeer();pStream.getTracks().forEach(t=>pc.addTrack(t,pStream));
+  const offer=await pc.createOffer();await pc.setLocalDescription(offer);await waitIceGathering(pc);
+  S.room.emit('signal',{type:'offer',description:pc.localDescription});
+  S.room.emit('hello',{});pT=setInterval(pTick,300);
+  $('pStart').textContent='Stop phone camera';$('pStart').onclick=stopPhone;
+  ps.textContent='Camera is streaming to your computer. Keep the phone steady above the floor plan.';
+}
+function pTick(){
+  const v=$('pv');if(v.readyState<2||!S.room)return;
+  S.cell=Math.max(+$('cell').value,Math.ceil(Math.sqrt(S.W*S.H/5200)));S.cols=Math.ceil(S.W/S.cell);S.rows=Math.ceil(S.H/S.cell);
+  bg.getContext('2d').drawImage(v,0,0,S.W,S.H);
+  S.room.emit('occ',{w:S.W,h:S.H,cell:S.cell,cols:S.cols,rows:S.rows,d:pack(computeOcc())});
+}
+function stopPhone(){
+  clearInterval(pT);if(pStream)pStream.getTracks().forEach(t=>t.stop());pStream=null;
+  if(S.peer){S.peer.close();S.peer=null}if(pWake){pWake.release();pWake=null}
+  $('pv').srcObject=null;$('pStart').textContent='Start phone camera';$('pStart').onclick=startPhone;$('ps').textContent='Stopped.';
+}
+
+/* ---------- local computer camera ---------- */
+async function startCam(){
+  if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){say('Camera is not available here. Open this page in its own browser tab over HTTPS.',true);return}
+  const v=$('vid');
+  try{v.srcObject=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'},width:{ideal:1280}},audio:false});await v.play();}
+  catch(e){say('Camera blocked ('+(e.name||'error')+'). Allow camera access, or open this page in its own browser tab.',true);return}
+  stop();S.src='local';S.camOn=true;S.start=S.goal=null;S.path=[];
+  const k=Math.min(1,640/v.videoWidth);S.W=Math.round(v.videoWidth*k);S.H=Math.round(v.videoHeight*k);
+  bg.width=cv.width=S.W;bg.height=cv.height=S.H;camReset();
+  $('bLive').textContent='Stop live camera';$('bLock').disabled=false;S.camT=setInterval(frame,250);
+  say('Live. Hold the camera steady above the plan, tap a start and a goal, then press Lock plan.');
+}
+function camReset(){dims();const n=S.cols*S.rows;S.occ=new Float32Array(n);S.wall=new Uint8Array(n);S.live=new Uint8Array(n);S.cnt=new Uint8Array(n);S.cam=new Uint8Array(n);S.base=null;inflate();$('bLock').textContent='Lock plan'}
+function stopCam(){
+  if(!S.camOn)return;clearInterval(S.camT);S.camOn=false;
+  S.src=null;S.base=null;const v=$('vid');if(v.srcObject){v.srcObject.getTracks().forEach(t=>t.stop());v.srcObject=null}
+  if(!PH){$('bLive').textContent='Start live camera';$('bLock').disabled=true;$('bLock').textContent='Lock plan'}
+}
+function frame(){const v=$('vid');if(!S.camOn||v.readyState<2)return;bg.getContext('2d').drawImage(v,0,0,S.W,S.H);ingest(computeOcc())}
+function ingest(f){
+  const n=f.length;for(let i=0;i<n;i++)S.occ[i]=.5*S.occ[i]+.5*f[i];let ch=false;
+  if(!S.base){for(let i=0;i<n;i++){const w=S.occ[i]>.1?1:0;if(w!==S.wall[i]){S.wall[i]=w;ch=true}}}
+  else{for(let i=0;i<n;i++){const seen=S.occ[i]>.1&&!S.baseD[i];if(seen){if(S.cnt[i]<6)S.cnt[i]++}else if(S.cnt[i]>0)S.cnt[i]--;if(S.cnt[i]>=3&&!S.live[i]){S.live[i]=1;S.cam[i]=1;ch=true}else if(S.cnt[i]===0&&S.cam[i]){S.live[i]=0;S.cam[i]=0;ch=true}}}
+  if(ch)onObstacleChange();else draw();pubGrid(false);
+}
+function lockPlan(){
+  if(!S.camOn)return;
+  if(S.base){S.base=null;S.baseD=null;S.live.fill(0);S.cam.fill(0);$('bLock').textContent='Lock plan';say('Plan unlocked. Everything the camera sees is mapped as walls again.');return}
+  S.base=S.wall.slice();S.baseD=new Uint8Array(S.base.length);
+  for(let y=0;y<S.rows;y++)for(let x=0;x<S.cols;x++)if(S.base[y*S.cols+x])for(let dy=-1;dy<=1;dy++)for(let dx=-1;dx<=1;dx++){const nx=x+dx,ny=y+dy;if(nx>=0&&ny>=0&&nx<S.cols&&ny<S.rows)S.baseD[ny*S.cols+nx]=1}
+  S.live.fill(0);S.cam.fill(0);S.cnt.fill(0);$('bLock').textContent='Unlock plan';say('Plan locked. Place a temporary obstacle on the plan and the route will adapt.');
+}
+
+/* ---------- room WebSocket ---------- */
+function connectRoom(){
+  const scheme=location.protocol==='https:'?'wss:':'ws:';
+  const ws=new WebSocket(scheme+'//'+location.host+'/ws/'+encodeURIComponent(roomId));
+  const handlers={};
+  S.room={ready:false,emit:(type,data)=>{if(ws.readyState===WebSocket.OPEN)ws.send(JSON.stringify({type,data}))},on:(type,fn)=>{(handlers[type]||(handlers[type]=[])).push(fn)}};
+  ws.onopen=()=>{S.room.ready=true;if(!PH){$('qs').textContent='Waiting for phone…';sendCfg()}else $('ps').textContent='Connected to computer. Tap Start phone camera.'};
+  ws.onmessage=e=>{let m;try{m=JSON.parse(e.data)}catch(_){return}for(const fn of handlers[m.type]||[])fn({data:m.data})};
+  ws.onclose=()=>{S.room.ready=false;if(PH)$('ps').textContent='Connection lost. Reload this page and scan the QR code again.';else $('qs').textContent='Connection lost. Refresh this page.'};
+  ws.onerror=()=>{if(PH)$('ps').textContent='Could not reach the computer. Check the internet connection.';else $('qs').textContent='Could not start the connection.'};
+  S.room.on('hello',()=>sendCfg());
+  S.room.on('cfg',m=>{if(!PH||!m.data)return;const c=m.data;if(typeof c.thr==='number')$('thr').value=c.thr;if(typeof c.cell==='number')$('cell').value=c.cell;if(typeof c.inv==='boolean')$('inv').checked=c.inv});
+  S.room.on('occ',m=>{if(!PH)onPhoneFrame(m.data)});
+  S.room.on('signal',m=>handleSignal(m.data));
+}
+/* ---------- input ---------- */
+function pt(e){const r=cv.getBoundingClientRect();return [(e.clientX-r.left)*cv.width/r.width,(e.clientY-r.top)*cv.height/r.height]}
+function paint(p,v){
+  const i=cellOf(p),x=i%S.cols,y=(i/S.cols)|0;
+  for(let dy=-1;dy<=1;dy++)for(let dx=-1;dx<=1;dx++){const nx=x+dx,ny=y+dy;if(nx>=0&&ny>=0&&nx<S.cols&&ny<S.rows)S.live[ny*S.cols+nx]=v}
+}
+cv.addEventListener('pointerdown',e=>{
+  const p=pt(e);
+  if(S.mode==='start'){S.start=p;stop();S.ri=0;if(S.goal){replan(false);say(S.path.length?'Route length '+pathLen()+' m.':'No route found.',!S.path.length)}else say('Start set. Now tap the goal.');draw()}
+  else if(S.mode==='goal'){S.goal=p;stop();S.ri=0;if(S.start){replan(false);say(S.path.length?'Route length '+pathLen()+' m.':'No route found.',!S.path.length)}else say('Goal set. Now set the start.');draw()}
+  else{S.painting=true;cv.setPointerCapture(e.pointerId);paint(p,S.mode==='obs'?1:0);onObstacleChange()}
+});
+cv.addEventListener('pointermove',e=>{if(S.painting){paint(pt(e),S.mode==='obs'?1:0);onObstacleChange()}});
+['pointerup','pointercancel'].forEach(t=>cv.addEventListener(t,()=>S.painting=false));
+$('modes').addEventListener('click',e=>{
+  const b=e.target.closest('button');if(!b)return;S.mode=b.dataset.m;
+  [...$('modes').children].forEach(x=>x.classList.toggle('on',x===b));
+});
+$('bCam').onclick=()=>$('file').click();
+$('file').onchange=e=>{const f=e.target.files[0];if(f){loadImg(URL.createObjectURL(f),false);e.target.value=''}};
+$('bSample').onclick=sample;
+$('bLive').onclick=()=>S.camOn?stopCam():startCam();
+$('bLock').onclick=lockPlan;
+$('bRun').onclick=run;
+$('bPlan').onclick=()=>{stop();S.ri=0;if(!S.start||!S.goal)say('Set both a start and a goal first.',true);else if(replan(false))say('Route length '+pathLen()+' m.');else say('No route found.',true);draw()};
+$('bDrop').onclick=dropAhead;
+$('bClr').onclick=()=>{S.live.fill(0);onObstacleChange()};
+$('bRst').onclick=reset;
+$('bCp').onclick=()=>{$('out').select();try{navigator.clipboard.writeText($('out').value)}catch(e){document.execCommand('copy')}};
+['thr','cell','inv'].forEach(id=>$(id).addEventListener('input',()=>{sendCfg();if(S.src==='phone')return;if(S.camOn){if(id==='cell')camReset()}else{stop();buildGrid()}}));
+$('radM').addEventListener('input',()=>{ updateRadInfo(); inflate(); onObstacleChange(); });
+$('radNum').addEventListener('change',()=>{ setRadius(+$('radNum').value||0.15, true); });
+$('radMinus').onclick=()=>setRadius(robotRadiusM()-0.05, true);
+$('radPlus').onclick=()=>setRadius(robotRadiusM()+0.05, true);
+document.querySelectorAll('[data-rad]').forEach(b=>b.onclick=()=>setRadius(+b.dataset.rad, true));
+updateRadInfo();
+$('rw').addEventListener('input',()=>{updateRadInfo();wp();if(S.path.length)say('Route length '+pathLen()+' m.')});
+$('ov').addEventListener('input',draw);
+
+/* ---------- MQTT ---------- */
+function mhint(){$('mh').textContent='Send obstacles to '+$('mt').value+'/obstacle as {"x":1.2,"y":0.8,"r":0.15} in meters, or {"clear":true}. Published: '+$('mt').value+'/grid (occupancy grid, run-length encoded: free run, wall run, free run, ...) and '+$('mt').value+'/path (waypoints).'}
+$('mt').addEventListener('input',mhint);mhint();
+$('bMq').onclick=()=>{
+  if(S.mq){S.mq.end(true);S.mq=null;$('bMq').textContent='Connect';say('MQTT disconnected.');return}
+  if(typeof mqtt==='undefined'){say('The MQTT library did not load. Check the connection and reload.',true);return}
+  const t=$('mt').value;
+  S.mq=mqtt.connect($('mu').value);
+  S.mq.on('connect',()=>{S.mq.subscribe(t+'/obstacle');$('bMq').textContent='Disconnect';say('MQTT connected. Listening on '+t+'/obstacle.');wp();pubGrid(true)});
+  S.mq.on('error',()=>say('MQTT connection failed. Check the broker URL (it must start with wss://).',true));
+  S.mq.on('message',(tp,m)=>{
+    try{
+      const o=JSON.parse(m.toString());
+      if(o.clear){S.live.fill(0)}
+      else if(typeof o.x==='number'&&typeof o.y==='number'){
+        const px=o.x/mpp(),py=o.y/mpp(),rc=Math.max(1,Math.ceil((o.r||.15)/mpp()/S.cell)),i=cellOf([px,py]),x0=i%S.cols,y0=(i/S.cols)|0;
+        for(let dy=-rc;dy<=rc;dy++)for(let dx=-rc;dx<=rc;dx++){
+          const nx=x0+dx,ny=y0+dy;if(nx>=0&&ny>=0&&nx<S.cols&&ny<S.rows&&dx*dx+dy*dy<=rc*rc)S.live[ny*S.cols+nx]=1;
+        }
+      }
+      onObstacleChange();
+    }catch(e){say('Ignored a message that was not valid JSON.',true)}
+  });
+};
+
+$('bPhone').onclick=togglePhone;
+$('pStart').onclick=startPhone;
+if(!PH){$('remoteCard').hidden=true;drawQR();}
+connectRoom();
+if(PH){$('ps').textContent='Connecting to your computer…';}
+else sample();
+</script>
+</body>
+</html>
